@@ -1,0 +1,27 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── FAQ Cache ─────────────────────────────────────────────────────
+    // Public read access for FAQ cache (used by Decision Engine).
+    // Write access restricted to admin SDK only (server-side).
+    match /faqs/{faqId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    
+    // ─── Conversation Logs ─────────────────────────────────────────────
+    // Anyone can create a conversation log (anonymous users).
+    // Reading and updating existing logs is restricted.
+    // Validates that required fields are present and within size limits.
+    match /conversations/{conversationId} {
+      allow create: if request.resource.data.keys().hasAll(['userMessage', 'botReply', 'timestamp'])
+                    && request.resource.data.userMessage is string
+                    && request.resource.data.userMessage.size() <= 2000
+                    && request.resource.data.botReply is string
+                    && request.resource.data.botReply.size() <= 10000;
+      allow read, update, delete: if false;
+    }
+  }
+}

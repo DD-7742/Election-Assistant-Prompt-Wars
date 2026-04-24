@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Election Companion AI — Your Smart Voting Guide</title>
+    <meta name="description" content="An intelligent, context-aware AI assistant powered by Google Gemini that guides you through election processes, timelines, voter eligibility, and registration.">
+    <meta name="theme-color" content="#1a73e8">
+    <!-- Accessibility: High contrast, modern typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+    <div class="app-wrapper">
+
+        <!-- ═══ Sidebar Navigation ═══ -->
+        <nav class="sidebar" aria-label="Main Navigation" id="sidebar-nav">
+            <div class="logo">
+                <div class="logo-icon" aria-hidden="true">🏛️</div>
+                <h1>Election<br>Companion</h1>
+            </div>
+
+            <!-- Mobile menu toggle (visible only on small screens) -->
+            <button class="mobile-toggle" id="mobile-nav-toggle" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="nav-menu">
+                <span class="hamburger" aria-hidden="true"></span>
+            </button>
+
+            <ul class="nav-links" id="nav-menu" role="menubar">
+                <li role="none"><button class="nav-btn active" data-target="chat-view" role="menuitem" aria-current="page" id="nav-chat">💬 AI Assistant</button></li>
+                <li role="none"><button class="nav-btn" data-target="wizard-view" role="menuitem" id="nav-wizard">📋 Election Wizard</button></li>
+                <li role="none"><button class="nav-btn" data-target="timeline-view" role="menuitem" id="nav-timeline">📅 Timeline Explorer</button></li>
+                <li role="none"><button class="nav-btn" data-target="eligibility-view" role="menuitem" id="nav-eligibility">✅ Eligibility Checker</button></li>
+            </ul>
+
+            <div class="sidebar-footer">
+                <span class="badge" aria-label="System status: Online">
+                    <span class="pulse" aria-hidden="true"></span> System Online
+                </span>
+                <p class="powered-by">Powered by Google Gemini &amp; Vertex AI</p>
+            </div>
+        </nav>
+
+        <!-- ═══ Main Content Area ═══ -->
+        <main class="main-content" id="main-content">
+            
+            <!-- ─── VIEW 1: AI Assistant (Default) ─── -->
+            <section id="chat-view" class="view active" aria-labelledby="chat-heading">
+                <header class="view-header">
+                    <h2 id="chat-heading">Intelligent Election Assistant</h2>
+                    <p>Powered by Google Gemini &amp; Vertex AI</p>
+                </header>
+                
+                <div class="chat-container">
+                    <div class="chat-history" id="chat-history" role="log" aria-live="polite" aria-label="Conversation history">
+                        <!-- Welcome Message -->
+                        <div class="message bot" role="article" aria-label="Assistant message">
+                            <div class="avatar" aria-hidden="true">🤖</div>
+                            <div class="message-content">
+                                <p>Welcome! I'm your <strong>Election Companion AI</strong>. I can help you understand voter registration, election timelines, eligibility, or explain complex voting processes. How can I assist you today?</p>
+                                <div class="suggested-actions" role="navigation" aria-label="Quick actions">
+                                    <button class="action-chip" onclick="handleChipClick('How do I register to vote?')">How do I register to vote?</button>
+                                    <button class="action-chip" onclick="handleChipClick('What are the steps on voting day?')">What are the steps on voting day?</button>
+                                    <button class="action-chip" onclick="handleChipClick('Am I eligible to vote?')">Am I eligible to vote?</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <form class="chat-input-form" id="chat-form" aria-label="Send a message to the AI assistant">
+                        <div class="input-group">
+                            <label for="user-input" class="visually-hidden">Type your question about elections</label>
+                            <input type="text" id="user-input" placeholder="Ask about election processes or rules..." autocomplete="off" required aria-required="true" maxlength="2000">
+                            <button type="submit" id="send-btn" aria-label="Send message">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                            </button>
+                        </div>
+                        <p class="disclaimer">ℹ️ Information is for educational purposes only. For official records, consult your local election authority.</p>
+                    </form>
+                </div>
+            </section>
+
+            <!-- ─── VIEW 2: Process Wizard ─── -->
+            <section id="wizard-view" class="view hidden" aria-labelledby="wizard-heading">
+                <header class="view-header">
+                    <h2 id="wizard-heading">Election Process Wizard</h2>
+                    <p>A step-by-step guide to the complete electoral journey.</p>
+                </header>
+                <div class="wizard-container">
+                    <div class="wizard-tabs" role="tablist" aria-label="Election process steps">
+                        <button role="tab" aria-selected="true" aria-controls="panel-1" id="tab-1" class="tab-btn active">1. Eligibility</button>
+                        <button role="tab" aria-selected="false" aria-controls="panel-1" id="tab-2" class="tab-btn">2. Registration</button>
+                        <button role="tab" aria-selected="false" aria-controls="panel-1" id="tab-3" class="tab-btn">3. Voting Day</button>
+                        <button role="tab" aria-selected="false" aria-controls="panel-1" id="tab-4" class="tab-btn">4. Counting</button>
+                    </div>
+                    <div class="wizard-content">
+                        <div id="panel-1" role="tabpanel" aria-labelledby="tab-1" class="tab-panel active">
+                            <h3>Voter Eligibility Basics</h3>
+                            <p>Before registering, you must meet these criteria:</p>
+                            <ul>
+                                <li><strong>Citizenship:</strong> You must be a citizen of India.</li>
+                                <li><strong>Age:</strong> You must be 18 years or older on the qualifying date.</li>
+                                <li><strong>Residence:</strong> You must be an ordinary resident of the constituency.</li>
+                                <li><strong>Sound Mind:</strong> You must not be disqualified under any law.</li>
+                            </ul>
+                            <button class="primary-btn mt-4" onclick="switchView('eligibility-view')" aria-label="Take the eligibility check quiz">Take Eligibility Check →</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── VIEW 3: Timeline Explorer ─── -->
+            <section id="timeline-view" class="view hidden" aria-labelledby="timeline-heading">
+                <header class="view-header">
+                    <h2 id="timeline-heading">Election Timeline Explorer</h2>
+                    <p>Understand the critical phases of an election cycle. Click any phase to expand.</p>
+                </header>
+                <div class="timeline-container" role="list" aria-label="Election timeline phases">
+
+                    <div class="timeline-line" aria-hidden="true"></div>
+                    
+                    <div class="timeline-item" role="listitem" aria-label="Phase 1: Notification">
+                        <div class="timeline-dot" aria-hidden="true"></div>
+                        <div class="timeline-content">
+                            <span class="phase-badge">Phase 1</span>
+                            <h3>Notification</h3>
+                            <p>The Election Commission formally announces election dates. The Model Code of Conduct comes into effect immediately, restricting what parties and candidates can do.</p>
+                            <p class="timeline-detail">Key activities: Press conference by Chief Election Commissioner, gazette notification, deployment of election observers.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="timeline-item" role="listitem" aria-label="Phase 2: Nomination">
+                        <div class="timeline-dot" aria-hidden="true"></div>
+                        <div class="timeline-content">
+                            <span class="phase-badge">Phase 2</span>
+                            <h3>Nomination</h3>
+                            <p>Candidates file their nomination papers along with affidavits declaring assets, criminal records, and educational qualifications.</p>
+                            <p class="timeline-detail">Key activities: Scrutiny of nominations by Returning Officer, withdrawal period, final list of contesting candidates published.</p>
+                        </div>
+                    </div>
+
+                    <div class="timeline-item" role="listitem" aria-label="Phase 3: Campaigning">
+                        <div class="timeline-dot" aria-hidden="true"></div>
+                        <div class="timeline-content">
+                            <span class="phase-badge">Phase 3</span>
+                            <h3>Campaigning</h3>
+                            <p>Parties hold rallies, distribute manifestos, and campaign across constituencies. This strictly ends 48 hours before polling begins ("silence period").</p>
+                            <p class="timeline-detail">Key activities: Rallies, door-to-door campaigns, social media outreach, expenditure monitoring by observers.</p>
+                        </div>
+                    </div>
+
+                    <div class="timeline-item highlight" role="listitem" aria-label="Phase 4: Polling Day">
+                        <div class="timeline-dot" aria-hidden="true"></div>
+                        <div class="timeline-content">
+                            <span class="phase-badge phase-active">Phase 4 — Current Focus</span>
+                            <h3>Polling Day</h3>
+                            <p>Voters cast their ballots at designated polling booths using EVMs. VVPAT machines provide a paper trail for verification.</p>
+                            <p class="timeline-detail">Key activities: Voter ID verification, indelible ink marking, EVM voting, VVPAT slip verification, sealed storage of EVMs.</p>
+                        </div>
+                    </div>
+
+                    <div class="timeline-item" role="listitem" aria-label="Phase 5: Counting & Results">
+                        <div class="timeline-dot" aria-hidden="true"></div>
+                        <div class="timeline-content">
+                            <span class="phase-badge">Phase 5</span>
+                            <h3>Counting &amp; Results</h3>
+                            <p>Votes are securely counted at central counting centers and official results are declared constituency by constituency.</p>
+                            <p class="timeline-detail">Key activities: Round-by-round counting, VVPAT audit sampling, declaration of results, certificate of election issued.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── VIEW 4: Eligibility Checker ─── -->
+            <section id="eligibility-view" class="view hidden" aria-labelledby="eligibility-heading">
+                <header class="view-header">
+                    <h2 id="eligibility-heading">Eligibility Checker</h2>
+                    <p>Quickly determine your voting eligibility with this guided questionnaire.</p>
+                </header>
+                <div class="checker-container" id="checker-form-container">
+                    <div class="question-card active" id="q1" role="form" aria-label="Eligibility question">
+                        <h3>Are you a citizen of the country?</h3>
+                        <div class="options">
+                            <button class="option-btn" onclick="handleEligibilityAnswer('q1', true)" aria-label="Yes, I am a citizen">Yes</button>
+                            <button class="option-btn" onclick="handleEligibilityAnswer('q1', false)" aria-label="No, I am not a citizen">No</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Firebase SDK (compat v10) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-functions-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
+    
+    <!-- Markdown renderer for bot messages -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <!-- Application modules (loaded in dependency order) -->
+    <script src="firebase-config.js"></script>
+    <script src="decision-engine.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
