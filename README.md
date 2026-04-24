@@ -6,18 +6,18 @@
 Empowering voters with accurate, instant information to demystify registration, polling day procedures, and election timelines.
 
 ## 🚀 Live Demo
-**URL:** [https://voting-assistant-c1265.web.app](https://voting-assistant-c1265.web.app)
+**URL:** [https://election-companion-ai-239353858986.us-central1.run.app](https://election-companion-ai-239353858986.us-central1.run.app)
 
 ---
 
 ## 🧠 Approach & Logic
 
-### 1. Dual-Path AI Strategy (Resilience)
-The core of the application is a robust backend hosted on **Firebase Cloud Functions (v2)**. It uses a tiered response strategy for maximum efficiency and reliability:
-- **Tier 1: Local Decision Engine:** High-frequency questions (e.g., "What is NOTA?") and navigation intents are handled instantly on the client side, saving latency and API costs.
-- **Tier 2: Firestore FAQ Cache:** Common queries are checked against a Firestore cache before hitting the AI model.
-- **Tier 3: Gemini API (Primary):** The latest Gemini 2.5 Flash model handles complex reasoning and conversational queries.
-- **Tier 4: Vertex AI (Fallback):** If the Gemini API experiences any downtime or key-limit issues, the system automatically fails over to the **Vertex AI SDK**, which uses service account authentication for enterprise-grade reliability.
+### 1. Containerized Dual-Path AI Strategy (Resilience)
+The application is containerized using **Docker** and deployed to **Google Cloud Run**. It uses a tiered response strategy for maximum efficiency and reliability:
+- **Tier 1: Local Decision Engine:** High-frequency questions (e.g., "What is NOTA?") and navigation intents are handled instantly on the client side.
+- **Tier 2: Firestore FAQ Cache:** Common queries are checked against a Firestore cache.
+- **Tier 3: Gemini API (Primary):** The latest Gemini 2.5 Flash model handles complex reasoning.
+- **Tier 4: Vertex AI (Fallback):** Resilient failover via the Vertex AI SDK.
 
 ### 2. Context-Aware Navigation
 The AI doesn't just talk; it **acts**. The `Decision Engine` detects user intent (like wanting to check eligibility or see a timeline) and automatically triggers UI transitions to the relevant tool, creating a seamless "conversational UI" experience.

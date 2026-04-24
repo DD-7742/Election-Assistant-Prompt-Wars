@@ -1,0 +1,11 @@
+node_modules
+functions
+.firebase
+.git
+.gitignore
+README.md
+tests.js
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
+*.md

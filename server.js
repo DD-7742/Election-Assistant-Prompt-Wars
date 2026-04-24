@@ -1,117 +1,144 @@
+/**
+ * Election Companion AI — Cloud Run Backend & Static Server
+ * 
+ * This server handles:
+ *   1. Serving the frontend (index.html, styles.css, app.js, etc.)
+ *   2. The /processChat API endpoint with Dual AI (Gemini + Vertex AI)
+ *   3. Rate limiting and security sanitization
+ */
+
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
+const admin = require('firebase-admin');
 const { GoogleGenAI } = require('@google/genai');
+const { VertexAI } = require('@google-cloud/vertexai');
 require('dotenv').config();
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 8080;
 
-// Middleware
+// Initialize Firebase Admin (uses Default Service Account credentials on Cloud Run)
+admin.initializeApp({
+    projectId: 'voting-assistant-c1265'
+});
+const db = admin.firestore();
+
+// ─── Middleware ─────────────────────────────────────────────────────────────
 app.use(cors());
 app.use(express.json());
-app.use(express.static('./')); // Serve static files from root for the frontend
+app.use(express.static(path.join(__dirname, './'))); // Serve static files from root
 
-// Initialize Gemini Client
-// We will use gemini-2.5-flash as it is the recommended model for general text tasks
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// ─── Rate Limiter (in-memory token bucket) ──────────────────────────────────
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const MAX_REQUESTS_PER_WINDOW = 20;
 
-// System Prompt for VoteSaathi
+function isRateLimited(ip) {
+    const now = Date.now();
+    const record = rateLimitMap.get(ip);
+    if (!record || now - record.windowStart > RATE_LIMIT_WINDOW_MS) {
+        rateLimitMap.set(ip, { windowStart: now, count: 1 });
+        return false;
+    }
+    record.count += 1;
+    return record.count > MAX_REQUESTS_PER_WINDOW;
+}
+
+// ─── AI Config ──────────────────────────────────────────────────────────────
 const SYSTEM_INSTRUCTION = `
-You are "VoteSaathi" — an authoritative, neutral, and real-time Indian Elections Assistant. 
-You are deployed on Google Cloud infrastructure and powered by Gemini with Google Search Grounding enabled.
+You are the "Election Companion AI" — an intelligent, neutral, and context-aware civic assistant.
+Your goal is to guide users through the election processes, voter eligibility, timelines,
+and registration procedures securely and efficiently.
 
-Your sole purpose is to help Indian citizens, journalists, researchers, and election observers get clear, accurate, verified, and up-to-date answers about elections held in India.
-
-CORE CAPABILITIES:
-1. Election Schedule & Dates (Phases, MCC timelines)
-2. Candidates & Parties (Lists, affiliations, criminal/asset records)
-3. Constituencies & Voting (Boundaries, registration, EVM/VVPAT, NOTA)
-4. Election Commission of India (Announcements, rules)
-5. Results & Statistics (Live results, vote share, historical data)
-6. Legal & Constitutional (Disqualification, Article 324-329)
-7. Voter Education (Eligibility, how to vote)
-
-BEHAVIOR RULES:
-- Accuracy First: Use Google Search Grounding for real-time data. 
-- Neutrality: You are strictly non-partisan and apolitical. Do not make predictions.
-- Format: Break complex answers into sections, use tables/bullet points.
-- Scope: Only answer questions regarding Indian elections.
-- Hallucination Prevention: If uncertain, state you cannot verify the fact. Never fabricate names, dates, or counts.
-
-RESPONSE STRUCTURE:
-[Direct Answer]
-[Details]
-📌 Source: <official URL>
-🕒 Data as of: <date or "Real-time via Google Search">
-[Follow-up Suggestion]
+RULES:
+1. Always remain strictly non-partisan and apolitical.
+2. Provide factual guidance based on verified electoral processes.
+3. If a user asks about eligibility, suggest they use the "Eligibility Checker" tool.
+4. If a user asks about registration steps, suggest they look at the "Election Wizard".
+5. Keep your responses concise, highly structured, and use Markdown.
+6. Provide logical next-step suggestions.
 `;
 
-// API Endpoint for chat
-app.post('/api/chat', async (req, res) => {
+// ─── Sanitization ───────────────────────────────────────────────────────────
+function sanitizeInput(raw) {
+    return (raw || '').replace(/<[^>]*>/g, '').trim().slice(0, 2000);
+}
+
+// ─── FAQ Cache Helper ───────────────────────────────────────────────────────
+async function checkFaqCache(query) {
     try {
-        const { message, history } = req.body;
+        const snapshot = await db.collection('faqs')
+            .where('keywords', 'array-contains', query.split(' ')[0])
+            .limit(1)
+            .get();
+        if (!snapshot.empty) return snapshot.docs[0].data().answer;
+    } catch (err) {
+        console.warn('FAQ cache error:', err.message);
+    }
+    return null;
+}
 
-        if (!message) {
-            return res.status(400).json({ error: 'Message is required' });
-        }
+// ─── API Endpoint ───────────────────────────────────────────────────────────
+app.post('/processChat', async (req, res) => {
+    const clientIp = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+    if (isRateLimited(clientIp)) {
+        return res.status(429).json({ reply: '⚠️ Too many requests. Please wait.', status: 'rate_limited' });
+    }
 
-        // Format history for the Gemini API
-        const formattedHistory = (history || []).map(msg => ({
-            role: msg.role === 'user' ? 'user' : 'model',
-            parts: [{ text: msg.content }]
-        }));
+    try {
+        const rawMessage = req.body?.data?.message || req.body?.message;
+        if (!rawMessage) return res.status(400).json({ error: 'Message required' });
 
-        // Create a chat session with the system instruction and grounding tool
-        const chat = ai.chats.create({
-            model: 'gemini-1.5-flash',
-            config: {
+        const message = sanitizeInput(rawMessage);
+
+        // 1. Check FAQ Cache
+        const cachedReply = await checkFaqCache(message.toLowerCase());
+        if (cachedReply) return res.json({ reply: cachedReply, status: 'success', source: 'cache' });
+
+        // 2. Try Gemini API (Primary)
+        let reply, source;
+        try {
+            const geminiAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+            const chat = geminiAI.chats.create({
+                model: 'gemini-2.5-flash',
+                config: { systemInstruction: SYSTEM_INSTRUCTION, temperature: 0.2 }
+            });
+            const result = await chat.sendMessage({ message });
+            reply = result.text;
+            source = 'gemini-api';
+        } catch (err) {
+            console.warn('Gemini API failed, falling back to Vertex AI:', err.message);
+            
+            // 3. Fallback to Vertex AI (Official SDK)
+            const vertex = new VertexAI({ project: 'voting-assistant-c1265', location: 'us-central1' });
+            const model = vertex.getGenerativeModel({
+                model: 'gemini-1.5-flash',
                 systemInstruction: SYSTEM_INSTRUCTION,
-                temperature: 0.1, // Low temperature for factual accuracy
-                // Enable Google Search Grounding
-                tools: [{ googleSearch: {} }],
-            }
-        });
-
-        // Add history if any
-        if (formattedHistory.length > 0) {
-             // Currently the SDK handles history creation differently, 
-             // for simplicity in this initial setup we will just send the latest message 
-             // with context if needed, but a robust app would reconstruct the chat history.
+                generationConfig: { temperature: 0.2 }
+            });
+            const vResult = await model.generateContent(message);
+            reply = vResult.response.candidates[0].content.parts[0].text;
+            source = 'vertex-ai';
         }
 
-        console.log(`Processing query: "${message}"`);
+        // Log to Firestore (non-blocking)
+        db.collection('conversations').add({
+            userMessage: message,
+            botReply: reply,
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            source
+        }).catch(e => console.error('Logging failed:', e));
 
-        // Send the message
-        const response = await chat.sendMessage({ message: message });
-        
-        let responseText = response.text;
-        let sources = [];
-
-        // Extract grounding metadata if available (the SDK might structure this slightly differently)
-        // This is a basic extraction, actual implementation depends on exact response structure of @google/genai
-        if (response.candidates && response.candidates[0] && response.candidates[0].groundingMetadata) {
-             const metadata = response.candidates[0].groundingMetadata;
-             if (metadata.groundingChunks) {
-                 sources = metadata.groundingChunks.map(chunk => chunk.web?.uri).filter(Boolean);
-             }
-        }
-
-        res.json({
-            response: responseText,
-            sources: sources
-        });
+        res.json({ reply, status: 'success', source });
 
     } catch (error) {
-        console.error('Error in chat endpoint:', error);
-        res.status(500).json({ 
-            error: 'Failed to process chat request',
-            details: error.message 
-        });
+        console.error('Final failure:', error);
+        res.status(500).json({ reply: '⚠️ Connection error. Please try again later.', status: 'error' });
     }
 });
 
-// Start the server
+// Start Server
 app.listen(port, () => {
-    console.log(`VoteSaathi Backend running at http://localhost:${port}`);
-    console.log(`Make sure to set your GEMINI_API_KEY in the .env file!`);
+    console.log(`Election Companion AI running on port ${port}`);
 });

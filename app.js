@@ -147,8 +147,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatHistory = document.getElementById('chat-history');
     const sendBtn = document.getElementById('send-btn');
 
-    /** Cloud Function endpoint URL */
-    const FUNCTION_URL = 'https://us-central1-voting-assistant-c1265.cloudfunctions.net/processChat';
+    /** Cloud Function/Cloud Run endpoint URL */
+    const FUNCTION_URL = '/processChat';
 
     /** Handle quick-action chip clicks */
     window.handleChipClick = function(text) {
