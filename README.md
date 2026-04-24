@@ -72,4 +72,4 @@ Open the live site, open the browser console, and run the contents of `tests.js`
 
 ---
 
-**Developed for PromptWars 2024.**
+**Developed for PromptWars 2026.**
