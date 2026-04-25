@@ -1,19 +1,31 @@
 /**
  * Election Companion AI — Main Frontend Application Logic
- * 
+ *
  * Modules:
  *   - Navigation controller (sidebar + views)
  *   - Election Process Wizard (4-step tabbed guide)
- *   - AI Chat interface (Gemini via Firebase Functions)
+ *   - AI Chat interface (Gemini via Cloud Run backend)
  *   - Eligibility Checker (decision-tree questionnaire)
  *   - Smart follow-up suggestions
  *   - Timeline interaction animations
- * 
+ *
  * Dependencies:
- *   - firebase-config.js (Firebase SDK initialization)
+ *   - firebase-config.js  (Firebase SDK initialization)
  *   - decision-engine.js  (local intent routing & FAQ cache)
- *   - marked.js           (markdown rendering for bot messages)
+ *   - marked.js           (Markdown rendering for bot messages)
+ *
+ * @module app
  */
+
+'use strict';
+
+// ─── App-level constants ──────────────────────────────────────────────────────
+/** Backend endpoint for AI chat processing */
+const CHAT_ENDPOINT     = '/processChat';
+/** Delay (ms) before a quick-action response is shown, simulating thought */
+const QUICK_REPLY_DELAY = 600;
+/** Delay (ms) before auto-navigating after a quick action */
+const NAV_DELAY_MS      = 1500;
 
 document.addEventListener('DOMContentLoaded', () => {
 
@@ -147,8 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatHistory = document.getElementById('chat-history');
     const sendBtn = document.getElementById('send-btn');
 
-    /** Cloud Function/Cloud Run endpoint URL */
-    const FUNCTION_URL = '/processChat';
+    // CHAT_ENDPOINT is defined at module scope above
 
     /** Handle quick-action chip clicks */
     window.handleChipClick = function(text) {
@@ -183,27 +194,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 appendMessage(quickAction.text, 'bot');
                 renderFollowUpSuggestions();
                 if (quickAction.action === 'navigate') {
-                    setTimeout(() => switchView(quickAction.target, quickAction.tab), 1500);
+                    setTimeout(() => switchView(quickAction.target, quickAction.tab), NAV_DELAY_MS);
                 }
                 sendBtn.disabled = false;
-            }, 600);
+            }, QUICK_REPLY_DELAY);
             return;
         }
 
         // ── Call Gemini via Firebase Cloud Function ──────────────────────
         appendTypingIndicator();
         try {
-            const response = await fetch(FUNCTION_URL, {
-                method: 'POST',
+            const response = await fetch(CHAT_ENDPOINT, {
+                method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ data: { message: message } }),
+                body:    JSON.stringify({ data: { message } }),
             });
 
             if (!response.ok) {
-                throw new Error(`Server responded with HTTP ${response.status}`);
+                const errorBody = await response.text().catch(() => '');
+                throw new Error(`HTTP ${response.status}: ${errorBody.slice(0, 120)}`);
             }
 
-            const json = await response.json();
+            const json  = await response.json();
             const reply = json.reply || 'No response received.';
 
             removeTypingIndicator();
@@ -221,8 +233,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (error) {
             removeTypingIndicator();
-            appendMessage('⚠️ I encountered an error connecting to the servers. Please try again later.', 'bot');
-            console.error('Cloud Function Error:', error);
+            const userMsg = navigator.onLine
+                ? '⚠️ The server encountered an error. Please try again in a moment.'
+                : '⚠️ You appear to be offline. Please check your connection and try again.';
+            appendMessage(userMsg, 'bot');
+            console.error('[Chat] Request failed:', error.message);
         } finally {
             sendBtn.disabled = false;
         }
