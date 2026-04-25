@@ -2,13 +2,13 @@
 // IMPORTANT: In a production app, restrict these keys in the Google Cloud Console
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-    apiKey: "AIzaSy_YOUR_FIREBASE_API_KEY_HERE",
+    apiKey: "AIzaSyCQx8mgUIyKiEi3VkGJpR5bs6H4iPTvF8Q",
     authDomain: "voting-assistant-c1265.firebaseapp.com",
     projectId: "voting-assistant-c1265",
     storageBucket: "voting-assistant-c1265.firebasestorage.app",
-    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-    appId: "1:YOUR_APP_ID:web:YOUR_APP_HASH",
-    measurementId: "G-YOUR_MEASUREMENT_ID"
+    messagingSenderId: "239353858986",
+    appId: "1:239353858986:web:2585352156d63fdc1679d3",
+    measurementId: "G-3Y2GB2B19T"
 };
 
 // Initialize Firebase

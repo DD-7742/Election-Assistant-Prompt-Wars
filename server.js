@@ -133,7 +133,8 @@ app.post('/processChat', async (req, res) => {
         res.json({ reply, status: 'success', source });
 
     } catch (error) {
-        console.error('Final failure:', error);
+        console.error('Final failure — message:', error.message);
+        console.error('Final failure — stack:', error.stack);
         res.status(500).json({ reply: '⚠️ Connection error. Please try again later.', status: 'error' });
     }
 });
