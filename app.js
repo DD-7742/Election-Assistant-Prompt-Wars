@@ -15,17 +15,33 @@
  *   - marked.js           (Markdown rendering for bot messages)
  *
  * @module app
+ * @version 2.0.0
  */
 
 'use strict';
 
 // ─── App-level constants ──────────────────────────────────────────────────────
-/** Backend endpoint for AI chat processing */
+
+/** @constant {string} Backend endpoint for AI chat processing */
 const CHAT_ENDPOINT     = '/processChat';
-/** Delay (ms) before a quick-action response is shown, simulating thought */
+/** @constant {number} Delay (ms) before a quick-action response is shown, simulating thought */
 const QUICK_REPLY_DELAY = 600;
-/** Delay (ms) before auto-navigating after a quick action */
+/** @constant {number} Delay (ms) before auto-navigating after a quick action */
 const NAV_DELAY_MS      = 1500;
+/** @constant {number} Maximum input length enforced client-side */
+const MAX_INPUT_LENGTH  = 2000;
+
+/**
+ * Map of HTML entity replacements for XSS prevention.
+ * @constant {Object.<string, string>}
+ */
+const HTML_ESCAPE_MAP = Object.freeze({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;',
+});
 
 document.addEventListener('DOMContentLoaded', () => {
 
@@ -38,16 +54,23 @@ document.addEventListener('DOMContentLoaded', () => {
     navButtons.forEach(btn => {
         btn.addEventListener('click', () => {
             const targetId = btn.getAttribute('data-target');
-            switchView(targetId);
+            if (targetId) {
+                switchView(targetId);
+            }
         });
     });
 
     /**
      * Switches the active view and updates sidebar navigation state.
+     * Manages focus for accessibility when switching views.
+     *
      * @param {string} viewId - The target view element ID
-     * @param {string|null} tabId - Optional tab to activate within wizard
+     * @param {string|null} [tabId=null] - Optional tab to activate within wizard
+     * @returns {void}
      */
     window.switchView = function(viewId, tabId = null) {
+        if (typeof viewId !== 'string' || viewId.length === 0) return;
+
         // Update nav button states
         navButtons.forEach(b => {
             b.classList.remove('active');
@@ -59,14 +82,16 @@ document.addEventListener('DOMContentLoaded', () => {
             activeNav.setAttribute('aria-current', 'page');
         }
 
-        // Update view visibility
+        // Update view visibility with ARIA state management
         views.forEach(v => {
             if (v.id === viewId) {
                 v.classList.remove('hidden');
                 v.classList.add('active');
+                v.removeAttribute('aria-hidden');
             } else {
                 v.classList.add('hidden');
                 v.classList.remove('active');
+                v.setAttribute('aria-hidden', 'true');
             }
         });
 
@@ -74,6 +99,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (viewId === 'wizard-view' && tabId) {
             const tab = document.getElementById(tabId);
             if (tab) tab.click();
+        }
+
+        // Move focus to the view header for screen reader context
+        const viewHeading = document.querySelector(`#${viewId} h2`);
+        if (viewHeading) {
+            viewHeading.setAttribute('tabindex', '-1');
+            viewHeading.focus({ preventScroll: true });
         }
     };
 
@@ -84,7 +116,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const tabBtns = document.querySelectorAll('.tab-btn');
     
     /** Wizard content for each tab — structured data for clean rendering */
-    const wizardContent = {
+    const wizardContent = Object.freeze({
         'tab-1': {
             title: 'Voter Eligibility Basics',
             body: `<p>Before registering, you must meet these criteria:</p>
@@ -102,7 +134,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <ol>
                     <li><strong>Obtain Form 6</strong> — Download from the ECI website or collect from your local ERO office.</li>
                     <li><strong>Gather Documents</strong> — Age proof (birth certificate, marksheet) + Address proof (Aadhaar, utility bill).</li>
-                    <li><strong>Submit Online or Offline</strong> — File via <a href="https://voters.eci.gov.in" target="_blank" rel="noopener">voters.eci.gov.in</a> or at the Electoral Registration Office.</li>
+                    <li><strong>Submit Online or Offline</strong> — File via <a href="https://voters.eci.gov.in" target="_blank" rel="noopener noreferrer">voters.eci.gov.in</a> or at the Electoral Registration Office.</li>
                     <li><strong>Track Application</strong> — Use the reference number to check your application status.</li>
                     <li><strong>Receive EPIC</strong> — Once approved, collect your Voter ID (EPIC) card.</li>
                 </ol>`,
@@ -129,7 +161,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <li><strong>Certificate of Election</strong> — The winning candidate receives an official certificate from the Returning Officer.</li>
                 </ol>`,
         },
-    };
+    });
 
     tabBtns.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -137,15 +169,44 @@ document.addEventListener('DOMContentLoaded', () => {
             tabBtns.forEach(b => {
                 b.classList.remove('active');
                 b.setAttribute('aria-selected', 'false');
+                b.setAttribute('tabindex', '-1');
             });
             btn.classList.add('active');
             btn.setAttribute('aria-selected', 'true');
+            btn.setAttribute('tabindex', '0');
 
             // Render corresponding content
             const panel = document.getElementById('panel-1');
             const content = wizardContent[btn.id];
-            if (content) {
+            if (content && panel) {
+                panel.setAttribute('aria-labelledby', btn.id);
                 panel.innerHTML = `<h3>${content.title}</h3>${content.body}`;
+            }
+        });
+
+        // Arrow key navigation for tabs (WAI-ARIA tab pattern)
+        btn.addEventListener('keydown', (e) => {
+            const tabArray = Array.from(tabBtns);
+            const currentIndex = tabArray.indexOf(btn);
+            let newIndex = -1;
+
+            if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                e.preventDefault();
+                newIndex = (currentIndex + 1) % tabArray.length;
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                newIndex = (currentIndex - 1 + tabArray.length) % tabArray.length;
+            } else if (e.key === 'Home') {
+                e.preventDefault();
+                newIndex = 0;
+            } else if (e.key === 'End') {
+                e.preventDefault();
+                newIndex = tabArray.length - 1;
+            }
+
+            if (newIndex >= 0) {
+                tabArray[newIndex].focus();
+                tabArray[newIndex].click();
             }
         });
     });
@@ -159,10 +220,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatHistory = document.getElementById('chat-history');
     const sendBtn = document.getElementById('send-btn');
 
-    // CHAT_ENDPOINT is defined at module scope above
-
     /** Handle quick-action chip clicks */
     window.handleChipClick = function(text) {
+        if (typeof text !== 'string' || text.trim().length === 0) return;
         userInput.value = text;
         chatForm.dispatchEvent(new Event('submit'));
     };
@@ -174,12 +234,15 @@ document.addEventListener('DOMContentLoaded', () => {
         // ── Empty input validation ──────────────────────────────────────
         if (!message) {
             userInput.setAttribute('aria-invalid', 'true');
+            userInput.setAttribute('aria-describedby', 'input-error');
             userInput.focus();
             return;
         }
         userInput.removeAttribute('aria-invalid');
+        userInput.removeAttribute('aria-describedby');
         userInput.value = '';
         sendBtn.disabled = true;
+        sendBtn.setAttribute('aria-busy', 'true');
 
         // ── Render user message ─────────────────────────────────────────
         appendMessage(message, 'user');
@@ -197,18 +260,25 @@ document.addEventListener('DOMContentLoaded', () => {
                     setTimeout(() => switchView(quickAction.target, quickAction.tab), NAV_DELAY_MS);
                 }
                 sendBtn.disabled = false;
+                sendBtn.removeAttribute('aria-busy');
             }, QUICK_REPLY_DELAY);
             return;
         }
 
-        // ── Call Gemini via Firebase Cloud Function ──────────────────────
+        // ── Call Gemini via Cloud Run backend ────────────────────────────
         appendTypingIndicator();
         try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
+
             const response = await fetch(CHAT_ENDPOINT, {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body:    JSON.stringify({ data: { message } }),
+                signal:  controller.signal,
             });
+
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
                 const errorBody = await response.text().catch(() => '');
@@ -228,18 +298,24 @@ document.addEventListener('DOMContentLoaded', () => {
                     timestamp: firebase.firestore.FieldValue.serverTimestamp(),
                     userMessage: message,
                     botReply: reply,
-                }).catch(err => console.warn('Firestore log failed:', err.message));
+                }).catch(err => console.warn('[Firestore] Log failed:', err.message));
             }
 
         } catch (error) {
             removeTypingIndicator();
-            const userMsg = navigator.onLine
-                ? '⚠️ The server encountered an error. Please try again in a moment.'
-                : '⚠️ You appear to be offline. Please check your connection and try again.';
+            let userMsg;
+            if (error.name === 'AbortError') {
+                userMsg = '⚠️ The request timed out. Please try again.';
+            } else if (!navigator.onLine) {
+                userMsg = '⚠️ You appear to be offline. Please check your connection and try again.';
+            } else {
+                userMsg = '⚠️ The server encountered an error. Please try again in a moment.';
+            }
             appendMessage(userMsg, 'bot');
             console.error('[Chat] Request failed:', error.message);
         } finally {
             sendBtn.disabled = false;
+            sendBtn.removeAttribute('aria-busy');
         }
     });
 
@@ -249,8 +325,10 @@ document.addEventListener('DOMContentLoaded', () => {
     /**
      * Appends a message bubble to the chat history.
      * Bot messages are rendered as Markdown; user messages are plain text.
+     *
      * @param {string} text   - The message content
-     * @param {string} sender - Either 'user' or 'bot'
+     * @param {'user'|'bot'} sender - Either 'user' or 'bot'
+     * @returns {void}
      */
     function appendMessage(text, sender) {
         const div = document.createElement('div');
@@ -266,46 +344,66 @@ document.addEventListener('DOMContentLoaded', () => {
         const content = document.createElement('div');
         content.className = 'message-content';
         // Sanitize user text to prevent XSS; parse bot markdown
-        content.innerHTML = sender === 'bot'
-            ? marked.parse(text)
-            : `<p>${escapeHtml(text)}</p>`;
+        if (sender === 'bot') {
+            content.innerHTML = typeof marked !== 'undefined' ? marked.parse(text) : escapeHtml(text);
+        } else {
+            content.innerHTML = `<p>${escapeHtml(text)}</p>`;
+        }
 
         div.appendChild(avatar);
         div.appendChild(content);
         chatHistory.appendChild(div);
         chatHistory.scrollTop = chatHistory.scrollHeight;
+
+        // Announce new messages to screen readers
+        chatHistory.setAttribute('aria-relevant', 'additions');
     }
 
     /**
      * Escapes HTML entities to prevent XSS in user-submitted text.
+     *
      * @param {string} str - Raw string
-     * @returns {string} Escaped string
+     * @returns {string} Escaped string safe for innerHTML
      */
     function escapeHtml(str) {
-        const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
-        return str.replace(/[&<>"']/g, c => map[c]);
+        if (typeof str !== 'string') return '';
+        return str.replace(/[&<>"']/g, c => HTML_ESCAPE_MAP[c] || c);
     }
 
-    /** Shows the animated typing indicator */
+    /**
+     * Shows the animated typing indicator.
+     * Uses aria-live and role="status" for screen reader announcements.
+     *
+     * @returns {void}
+     */
     function appendTypingIndicator() {
+        // Prevent duplicate typing indicators
+        if (document.getElementById('typing')) return;
+
         const div = document.createElement('div');
         div.className = 'message bot typing-message';
         div.id = 'typing';
         div.setAttribute('role', 'status');
         div.setAttribute('aria-label', 'Assistant is typing');
+        div.setAttribute('aria-live', 'polite');
         div.innerHTML = `
             <div class="avatar" aria-hidden="true">🤖</div>
             <div class="message-content">
-                <div class="typing-indicator">
+                <div class="typing-indicator" aria-hidden="true">
                     <div class="dot"></div><div class="dot"></div><div class="dot"></div>
                 </div>
+                <span class="visually-hidden">Assistant is thinking…</span>
             </div>
         `;
         chatHistory.appendChild(div);
         chatHistory.scrollTop = chatHistory.scrollHeight;
     }
 
-    /** Removes the typing indicator from the chat */
+    /**
+     * Removes the typing indicator from the chat.
+     *
+     * @returns {void}
+     */
     function removeTypingIndicator() {
         const el = document.getElementById('typing');
         if (el) el.remove();
@@ -314,15 +412,17 @@ document.addEventListener('DOMContentLoaded', () => {
     /**
      * Renders smart follow-up suggestion chips below the latest bot message.
      * Uses the Decision Engine's context-aware suggestion system.
+     *
+     * @returns {void}
      */
     function renderFollowUpSuggestions() {
         const suggestions = window.decisionEngine.getFollowUpSuggestions();
-        if (suggestions.length === 0) return;
+        if (!suggestions || suggestions.length === 0) return;
 
         const container = document.createElement('div');
         container.className = 'message bot';
-        container.setAttribute('role', 'navigation');
-        container.setAttribute('aria-label', 'Suggested next steps');
+        container.setAttribute('role', 'region');
+        container.setAttribute('aria-label', 'Suggested follow-up questions');
 
         const avatar = document.createElement('div');
         avatar.className = 'avatar';
@@ -335,10 +435,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const chipContainer = document.createElement('div');
         chipContainer.className = 'suggested-actions';
-        suggestions.forEach(text => {
+        chipContainer.setAttribute('role', 'group');
+        chipContainer.setAttribute('aria-label', 'Suggested questions');
+
+        suggestions.forEach((text, index) => {
             const chip = document.createElement('button');
             chip.className = 'action-chip';
             chip.textContent = text;
+            chip.setAttribute('aria-label', `Ask: ${text}`);
             chip.addEventListener('click', () => handleChipClick(text));
             chipContainer.appendChild(chip);
         });
@@ -359,10 +463,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /**
      * Handles an eligibility question answer and progresses the flow.
+     *
      * @param {string} questionId - Current question node ID
      * @param {boolean} isYes - Whether the user answered "Yes"
+     * @returns {void}
      */
     window.handleEligibilityAnswer = function(questionId, isYes) {
+        if (typeof questionId !== 'string') return;
+
         const currentQ = flow.find(q => q.id === questionId);
         if (!currentQ) return;
 
@@ -380,22 +488,32 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!nextQ) return;
 
             checkerContainer.innerHTML = `
-                <div class="question-card active" id="${nextQ.id}" role="form" aria-label="Eligibility question">
-                    <h3>${nextQ.text}</h3>
-                    <div class="options">
-                        <button class="option-btn" onclick="handleEligibilityAnswer('${nextQ.id}', true)" aria-label="Yes">Yes</button>
-                        <button class="option-btn" onclick="handleEligibilityAnswer('${nextQ.id}', false)" aria-label="No">No</button>
+                <div class="question-card active" id="${nextQ.id}" role="group" aria-labelledby="${nextQ.id}-heading">
+                    <h3 id="${nextQ.id}-heading">${nextQ.text}</h3>
+                    <div class="options" role="group" aria-label="Answer options">
+                        <button class="option-btn" onclick="handleEligibilityAnswer('${nextQ.id}', true)" aria-label="Yes, ${nextQ.text}">Yes</button>
+                        <button class="option-btn" onclick="handleEligibilityAnswer('${nextQ.id}', false)" aria-label="No, ${nextQ.text}">No</button>
                     </div>
                 </div>
             `;
+
+            // Focus the new question for screen readers
+            const newHeading = document.getElementById(`${nextQ.id}-heading`);
+            if (newHeading) {
+                newHeading.setAttribute('tabindex', '-1');
+                newHeading.focus();
+            }
         }
     };
 
     /**
      * Renders the eligibility result card with contextual messaging.
+     *
      * @param {string} resultCode - One of 'pass', 'fail_citizen', 'fail_age', 'fail_residence', 'fail_disqualified'
+     * @returns {void}
      */
     function showEligibilityResult(resultCode) {
+        /** @type {Object.<string, {title: string, message: string, color: string, action: string}>} */
         const results = {
             pass: {
                 title: '✅ You appear to be eligible!',
@@ -432,24 +550,37 @@ document.addEventListener('DOMContentLoaded', () => {
         const result = results[resultCode] || results.fail_citizen;
 
         checkerContainer.innerHTML = `
-            <div class="question-card active result-card" style="border-top: 4px solid ${result.color}" role="alert">
-                <h3 style="color: ${result.color}">${result.title}</h3>
+            <div class="question-card active result-card" style="border-top: 4px solid ${result.color}" role="alert" aria-live="assertive">
+                <h3 style="color: ${result.color}" id="eligibility-result-heading">${result.title}</h3>
                 <p>${result.message}</p>
                 ${result.action}
                 <button class="secondary-btn mt-4" onclick="resetEligibilityChecker()" aria-label="Restart eligibility check">Start Over</button>
             </div>
         `;
+
+        // Focus the result for screen reader announcement
+        const resultHeading = document.getElementById('eligibility-result-heading');
+        if (resultHeading) {
+            resultHeading.setAttribute('tabindex', '-1');
+            resultHeading.focus();
+        }
     }
 
-    /** Resets the eligibility checker to question 1 */
+    /**
+     * Resets the eligibility checker to question 1.
+     *
+     * @returns {void}
+     */
     window.resetEligibilityChecker = function() {
         const firstQ = flow[0];
+        if (!firstQ) return;
+
         checkerContainer.innerHTML = `
-            <div class="question-card active" id="${firstQ.id}" role="form" aria-label="Eligibility question">
-                <h3>${firstQ.text}</h3>
-                <div class="options">
-                    <button class="option-btn" onclick="handleEligibilityAnswer('${firstQ.id}', true)" aria-label="Yes">Yes</button>
-                    <button class="option-btn" onclick="handleEligibilityAnswer('${firstQ.id}', false)" aria-label="No">No</button>
+            <div class="question-card active" id="${firstQ.id}" role="group" aria-labelledby="${firstQ.id}-heading">
+                <h3 id="${firstQ.id}-heading">${firstQ.text}</h3>
+                <div class="options" role="group" aria-label="Answer options">
+                    <button class="option-btn" onclick="handleEligibilityAnswer('${firstQ.id}', true)" aria-label="Yes, ${firstQ.text}">Yes</button>
+                    <button class="option-btn" onclick="handleEligibilityAnswer('${firstQ.id}', false)" aria-label="No, ${firstQ.text}">No</button>
                 </div>
             </div>
         `;
@@ -462,14 +593,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const timelineItems = document.querySelectorAll('.timeline-item');
     timelineItems.forEach(item => {
         item.addEventListener('click', () => {
+            const wasExpanded = item.classList.contains('expanded');
             // Toggle expanded state
             timelineItems.forEach(i => i.classList.remove('expanded'));
-            item.classList.toggle('expanded');
+            if (!wasExpanded) {
+                item.classList.add('expanded');
+            }
+            // Update ARIA expanded state
+            item.setAttribute('aria-expanded', String(!wasExpanded));
         });
 
         // Keyboard support for timeline items
         item.setAttribute('tabindex', '0');
         item.setAttribute('role', 'button');
+        item.setAttribute('aria-expanded', 'false');
         item.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
@@ -489,7 +626,17 @@ document.addEventListener('DOMContentLoaded', () => {
         mobileToggle.addEventListener('click', () => {
             sidebar.classList.toggle('sidebar-open');
             const isOpen = sidebar.classList.contains('sidebar-open');
-            mobileToggle.setAttribute('aria-expanded', isOpen);
+            mobileToggle.setAttribute('aria-expanded', String(isOpen));
+            mobileToggle.setAttribute('aria-label', isOpen ? 'Close navigation menu' : 'Open navigation menu');
         });
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECTION 7: Initialize hidden views with aria-hidden
+    // ═══════════════════════════════════════════════════════════════════════
+    views.forEach(v => {
+        if (v.classList.contains('hidden')) {
+            v.setAttribute('aria-hidden', 'true');
+        }
+    });
 });

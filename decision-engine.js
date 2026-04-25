@@ -1,25 +1,58 @@
 /**
  * Decision Engine for the Election Companion AI
- * 
+ *
  * Responsibilities:
  *   - Context-aware intent detection and routing
  *   - FAQ cache management (local + Firestore)
  *   - Eligibility checker flow logic
  *   - Smart follow-up suggestion generation
- * 
+ *
  * Design: Acts as a lightweight client-side "router" to avoid unnecessary
  * Gemini API calls for common queries. This improves response time and
  * reduces cost.
+ *
+ * @module DecisionEngine
+ * @version 2.0.0
+ */
+
+'use strict';
+
+/**
+ * @typedef {Object} IntentResponse
+ * @property {string} type - Response type: 'static' | 'action'
+ * @property {string} [action] - Action to perform: 'navigate'
+ * @property {string} [target] - Target view ID for navigation
+ * @property {string} [tab] - Optional tab ID within a view
+ * @property {string} text - Response text to display
+ */
+
+/**
+ * @typedef {Object} EligibilityNode
+ * @property {string} id - Unique node identifier (e.g. 'q1')
+ * @property {string} text - Question text displayed to the user
+ * @property {string} yes - Next node ID or result code for 'Yes' answer
+ * @property {string} no - Next node ID or result code for 'No' answer
+ */
+
+/**
+ * @typedef {Object} ConversationContext
+ * @property {string|null} lastIntent - Last detected intent identifier
+ * @property {number} questionsAsked - Total questions asked in session
+ * @property {string[]} topicsExplored - Array of explored topic keywords
  */
 
 class DecisionEngine {
+    /**
+     * Creates a new DecisionEngine instance with default context,
+     * FAQ cache, and intent rules.
+     */
     constructor() {
-        /** @type {{ lastIntent: string|null, questionsAsked: number, topicsExplored: string[] }} */
-        this.context = {
+        /** @type {ConversationContext} */
+        this.context = Object.seal({
             lastIntent: null,
             questionsAsked: 0,
             topicsExplored: [],
-        };
+        });
 
         /**
          * Local FAQ cache — common questions answered instantly without API call.
@@ -37,9 +70,9 @@ class DecisionEngine {
 
         /**
          * Intent detection rules — maps keyword patterns to navigation actions or responses.
-         * @type {Array<{patterns: string[], response: object}>}
+         * @type {Array<{patterns: string[], response: IntentResponse}>}
          */
-        this.intentRules = [
+        this.intentRules = Object.freeze([
             {
                 patterns: ['am i eligible', 'eligibility check', 'can i vote', 'check eligibility'],
                 response: {
@@ -88,7 +121,15 @@ class DecisionEngine {
                     text: "I'll take you to the Vote Counting & Results section.",
                 },
             },
-        ];
+        ]);
+
+        /** @type {EligibilityNode[]} Frozen eligibility decision tree */
+        this._eligibilityFlow = Object.freeze([
+            { id: 'q1', text: 'Are you a citizen of the country?', yes: 'q2', no: 'fail_citizen' },
+            { id: 'q2', text: 'Are you 18 years of age or older?', yes: 'q3', no: 'fail_age' },
+            { id: 'q3', text: 'Do you have a valid proof of residence (e.g., Aadhaar, utility bill)?', yes: 'q4', no: 'fail_residence' },
+            { id: 'q4', text: 'Are you of sound mind and not disqualified under any law?', yes: 'pass', no: 'fail_disqualified' },
+        ]);
 
         // Load additional FAQs from Firestore (async, non-blocking)
         this._loadFirestoreFaqs();
@@ -98,15 +139,17 @@ class DecisionEngine {
     /**
      * Asynchronously loads FAQ entries from the Firestore 'faqs' collection.
      * Merges them into the local cache. Fails silently if Firestore is unavailable.
+     *
      * @private
+     * @returns {Promise<void>}
      */
     async _loadFirestoreFaqs() {
-        if (!window.db) return;
+        if (typeof window === 'undefined' || !window.db) return;
         try {
             const snapshot = await window.db.collection('faqs').get();
             snapshot.forEach(doc => {
                 const data = doc.data();
-                if (data.question && data.answer) {
+                if (data && typeof data.question === 'string' && typeof data.answer === 'string') {
                     this.faqCache[data.question.toLowerCase()] = data.answer;
                 }
             });
@@ -120,17 +163,22 @@ class DecisionEngine {
     /**
      * Analyzes a user message locally. Returns an instant response if possible,
      * or null to indicate the message should be forwarded to Gemini.
-     * 
+     *
      * Priority order:
      *   1. FAQ cache (instant factual answer)
      *   2. Intent rules (navigation action)
      *   3. null → forward to Gemini API
-     * 
+     *
      * @param {string} message - The raw user message
-     * @returns {object|null} Response object or null
+     * @returns {IntentResponse|null} Response object or null
      */
     quickAnalyze(message) {
-        const lowerMsg = message.toLowerCase();
+        // Guard: handle non-string or empty input gracefully
+        if (typeof message !== 'string' || message.trim().length === 0) {
+            return null;
+        }
+
+        const lowerMsg = message.toLowerCase().trim();
 
         // Update context
         this.context.questionsAsked += 1;
@@ -139,7 +187,9 @@ class DecisionEngine {
         for (const [key, value] of Object.entries(this.faqCache)) {
             if (lowerMsg.includes(key)) {
                 this.context.lastIntent = 'faq';
-                this.context.topicsExplored.push(key);
+                if (!this.context.topicsExplored.includes(key)) {
+                    this.context.topicsExplored.push(key);
+                }
                 return { type: 'static', text: value };
             }
         }
@@ -161,11 +211,12 @@ class DecisionEngine {
     /**
      * Generates contextual follow-up suggestions based on conversation history.
      * Called after each bot response to offer logical next steps.
-     * 
-     * @returns {string[]} Array of suggestion strings
+     *
+     * @returns {string[]} Array of suggestion strings (max 3)
      */
     getFollowUpSuggestions() {
         const explored = this.context.topicsExplored;
+        /** @type {string[]} */
         const suggestions = [];
 
         if (!explored.includes('eligibility') && this.context.questionsAsked >= 1) {
@@ -186,18 +237,25 @@ class DecisionEngine {
 
     // ─── Eligibility Checker Flow ───────────────────────────────────────────
     /**
-     * Returns the eligibility decision tree as an array of question nodes.
+     * Returns the eligibility decision tree as a frozen array of question nodes.
      * Each node has: id, text, yes (next node or result), no (next node or result).
-     * 
-     * @returns {Array<{id: string, text: string, yes: string, no: string}>}
+     *
+     * @returns {ReadonlyArray<EligibilityNode>}
      */
     getEligibilityFlow() {
-        return [
-            { id: 'q1', text: 'Are you a citizen of the country?', yes: 'q2', no: 'fail_citizen' },
-            { id: 'q2', text: 'Are you 18 years of age or older?', yes: 'q3', no: 'fail_age' },
-            { id: 'q3', text: 'Do you have a valid proof of residence (e.g., Aadhaar, utility bill)?', yes: 'q4', no: 'fail_residence' },
-            { id: 'q4', text: 'Are you of sound mind and not disqualified under any law?', yes: 'pass', no: 'fail_disqualified' },
-        ];
+        return this._eligibilityFlow;
+    }
+
+    /**
+     * Resets the conversation context to initial state.
+     * Useful for testing or starting a new session.
+     *
+     * @returns {void}
+     */
+    resetContext() {
+        this.context.lastIntent = null;
+        this.context.questionsAsked = 0;
+        this.context.topicsExplored.length = 0;
     }
 }
 
